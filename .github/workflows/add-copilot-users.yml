@@ -1,0 +1,57 @@
+name: Add Copilot Users
+
+on:
+  issue_comment:                                     
+    types: [created, edited]
+
+env:
+  COPILOT_ORG: ${{ github.repository_owner }}
+    
+jobs:
+  add-users:
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.comment.body, '/user')
+    permissions:
+      issues: write
+      contents: read      
+    steps:
+      - name: Get Users For Assigning Copilot Seats
+        run: |
+          echo "comment body: ${{ github.event.comment.body }}"
+          echo "COPILOT_USERNAMES=${{ github.event.comment.body }}" >> "$GITHUB_ENV"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Python script
+        env:
+          COPILOT_ADMIN_TOKEN: ${{ secrets.COPILOT_BILLING_TOKEN }}
+        run: |
+          python ${{ github.workspace }}/add_users.py
+      
+      - name: Set status code and message as env vars
+        run: |
+          echo "RESPONSE_STATUS_CODE=$(cat response_status_code.txt)" >> "$GITHUB_ENV"
+          echo "RESPONSE_MESSAGE=$(cat response_message.txt)" >> "$GITHUB_ENV"
+          
+      - name: Write Confirmation On Issue
+        uses: actions/github-script@v5
+        env:
+          RESPONSE_STATUS_CODE: ${{ env.RESPONSE_STATUS_CODE }}
+          RESPONSE_MESSAGE: ${{ env.RESPONSE_MESSAGE }}
+        with:
+          script: |
+            let reactionContent = process.env.RESPONSE_STATUS_CODE == '201' ? '+1' : '-1';
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: reactionContent
+            });
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: process.env.RESPONSE_MESSAGE
+            });
